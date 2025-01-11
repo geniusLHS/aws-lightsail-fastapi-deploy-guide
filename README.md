@@ -35,8 +35,7 @@
 
   - 대부분의 오류는 인터넷 검색으로 해결 가능
   - 그래도 안된다면 노트북 껐다가 다시 켜볼 것
-  - 그래도 안된다면 lightsail 인스턴스 재부팅 해볼 것
-  - 잘 접속 되다가 갑자기 Timeout 에러가 뜰 때가 있다. 서버가 열 받은 것 같은데 일단 밥 먹고 오면 해결된다.
+  - 그래도 안된다면 lightsail 인스턴스 재부팅 해볼 것 (많은 경우 이거면 해결됨)
 
 - 필수로 알아야 하는 linux 명령어
   > ```bash
@@ -144,6 +143,8 @@ Restart=always
 WantedBy=multi-user.target
 ```
 
+> 작성 후 Ctrl+O (저장) → Enter (파일명 확인 및 저장) → Ctrl+X (종료)
+
 ### (2) 백그라운드에서 서비스 시작
 
 ```bash
@@ -160,14 +161,16 @@ sudo systemctl status snuclsai
   ```bash
   # GET 요청
   curl http://localhost:8000 -X GET
+  # 올바른 응답: {"message": "Hello, FastAPI!"}
 
   # POST 요청
   curl http://localhost:8000/test -X POST -H "Content-Type: application/json" -d '{"message": "YAHO~~"}'
+  # 출바른 응답: {"yousaid": "YAHO~~"}
   ```
 
-- 이제 서버 컴퓨터 외부에서의 요청도 처리할 수 있도록 해보자.
-
 ## 6. Nginx 설치 및 설정
+
+- 이제 서버 컴퓨터 외부에서의 요청도 처리할 수 있도록 해보자.
 
 ### (1) Nginx 설치
 
@@ -200,6 +203,7 @@ server {
 
 ```bash
 sudo ln -s /etc/nginx/sites-available/snuclsai /etc/nginx/sites-enabled/
+sudo nginx -t
 sudo systemctl restart nginx
 ```
 
@@ -207,27 +211,136 @@ sudo systemctl restart nginx
 
   다음 코드를 실행해서 잘 작동하는지 테스트 해보자. (**로컬 컴퓨터** 터미널에서 실행)
 
-  ```bash
-  # GET 요청
-  curl http://<퍼블릭 IPv4 주소> -X GET
+  - linux
 
-  # POST 요청
-  curl http://<퍼블릭 IPv4 주소>/test -X POST -H "Content-Type: application/json" -d '{"message": "YAHO~~"}'
-  ```
+    ```bash
+    # GET 요청
+    curl http://<퍼블릭 IPv4 주소> -X GET
+    # 올바른 응답: {"message": "Hello, FastAPI!"}
+
+    # POST 요청
+    curl http://<퍼블릭 IPv4 주소>/test -X POST -H "Content-Type: application/json" -d '{"message": "YAHO~~"}'
+    # 올바른 응답: {"yousaid": "YAHO~~"}
+    ```
+
+  - windows (powershell)
+
+    ```powershell
+    # GET 요청
+    curl http://<퍼블릭 IPv4 주소>
+    # 올바른 응답: {"message": "Hello, FastAPI!"}
+
+    # POST 요청
+    Invoke-WebRequest -Uri "http://<퍼블릭 IPv4 주소>/test" `
+      -Method Post `
+      -Headers @{"Content-Type"="application/json"} `
+      -Body '{"message": "YAHO~~"}'
+    # 올바른 응답: {"yousaid": "YAHO~~"}
+    ```
 
 ## 7. HTTPS 적용
 
-- 아직 미정
+- 지금은 http 프로토콜만 사용 가능하다. 인증서를 적용하여 https 프로토콜을 사용할 수 있도록 바꾸자.
+
+  > https의 s는 secure의 약자이다. 만약 http 프로토콜을 사용하면 데이터가 암호화되지 않은 상태로 전송되므로 해커가 쉽게 가로챌 수 있음.
+
+- 만약 도메인을 가지고 있다면 cerbot을 사용하여 매우 쉽게 인증서를 발급할 수 있다.
+
+  우리는 도메인이 없으므로 직접 인증서를 발급받아 적용시켜보자.
+
+### (1) 인증서 발급
+
+```bash
+sudo mkdir -p /etc/nginx/ssl
+sudo openssl req -x509 -newkey rsa:4096 -keyout /etc/nginx/ssl/key.pem -out /etc/nginx/ssl/cert.pem -days 365 -nodes
+```
+
+- 위 명령어를 실행시 나오는 질문은 눈치껏 작성하면 된다.
+
+  - Country Name (2 letter code): `KR`
+  - State or Province Name: `Seoul`
+  - Locality Name: `Seoul`
+  - Organization Name: `SNUCLSGPTTF`
+  - Organizational Unit Name: `BE`
+  - Common Name (e.g. server FQDN or YOUR name): `<서버 퍼블릭 IP>`
+  - Email Address: `<이메일 주소>`
+
+> `-days 365` 옵션은 인증서 만료 기간을 365일로 설정한다. 이 기간이 지나면 인증서를 재발급 받아야 한다. 아래에서 자동 갱신 코드를 작성할 것이다.
+
+### (2) Nginx 설정 파일 수정
+
+```bash
+sudo nano /etc/nginx/sites-available/snuclsai
+```
+
+```nginx
+server {
+    listen 80;
+    server_name <퍼블릭 IPv4 주소>;
+
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name <퍼블릭 IPv4 주소>;
+
+    ssl_certificate /etc/nginx/ssl/cert.pem;
+    ssl_certificate_key /etc/nginx/ssl/key.pem;
+
+    location / {
+        proxy_pass http://localhost:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+    }
+}
+```
+
+### (3) Nginx 설정 적용
+
+```bash
+sudo nginx -t
+sudo systemctl restart nginx
+```
+
+### (4) 방화벽 설정
+
+1. [lightsail.aws.amazon.com](https://lightsail.aws.amazon.com)에서 인스턴스 페이지 접속
+2. 네트워킹 탭에서 IPv4 방화벽에 HTTPS 규칙 추가
+
+### (5) 인증서 자동 갱신 설정
+
+1. 인증서 자동 갱신 스크립트 생성
+
+   ```bash
+   sudo nano /etc/cron.monthly/renew_ssl.sh
+   ```
+
+   ```sh
+   #!/bin/bash
+   openssl req -x509 -newkey rsa:4096 -keyout /etc/nginx/ssl/key.pem -out /etc/nginx/ssl/cert.pem -days 365 -nodes -subj "/C=KR/ST=Seoul/L=Seoul/O=SNUCLSGPTTF/OU=BE/CN=<퍼블릭 IPv4 주소>"
+   systemctl restart nginx
+   ```
+
+2. 스크립트 실행 권한 부여
+
+   ```bash
+   sudo chmod +x /etc/cron.monthly/renew_ssl.sh
+   ```
 
 ## 8. 최종 테스트
 
-```bash
-# 1. GET 요청
-curl https://<주소>/ -X GET
+- 브라우저에 `https://<퍼블릭 IPv4 주소>` 접속
 
-# 2. POST 요청
-curl https://<주소>/test -X POST -H "Content-Type: application/json" -d '{"message": "YAHO~~"}'
-```
+  - 기본적으로 브라우저를 통한 접속은 GET 요청이다. 즉, `/` 엔드포인트에 GET 요청을 보낸 것이다.
+  - `{"message":"Hello, FastAPI!"}`가 출력되는지 확인한다.
+
+  > - 이 때 브라우저에서 "안전하지 않음" 경고가 뜰 수 있다. Self-Signed 인증서는 공인된 기관(CA)에서 발급된 것이 아니므로 브라우저가 신뢰하지 않기 때문이다.
+  > - 마찬가지로 클라이언트 코드에서는 SSL 검증을 무시할 수 없다. 즉, 클라이언트 코드에서는 우리가 만든 서버를 사용할 수 없다.
+  > - 그러나 서버 사이드 코드 (Next.js App Router의 Route Handlers 등) 에서는 이를 무시하도록 설정할 수 있다.
+  > - 또한, 비록 자체 서명 인증서이지만 SSL/TLS를 사용하여 데이터를 암호화 하기때문에 데이터 보호는 확실하게 된다.
 
 ## 참고: 코드 수정 후 적용 방법
 
