@@ -1,4 +1,4 @@
-# AWS Lightsail 배포 로드맵
+# AWS Lightsail을 이용한 FastAPI 배포 로드맵
 
 ## 0. 작업 일정
 
