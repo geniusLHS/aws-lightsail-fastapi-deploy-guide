@@ -69,12 +69,12 @@ sudo apt install -y python3-venv
 
   ```bash
   mkdir ~/snuclsai && cd ~/snuclsai
-  python3 -m venv venv
-  source venv/bin/activate
+  python3 -m venv .venv
+  source .venv/bin/activate
   ```
 
   > - 이 때 터미널에서 `(venv)` 라는 표시가 나타나면 가상 환경에 접속된 상태이다.
-  > - VSCode에서 다른 디렉토리를 갔다가 다시 돌아오거나 하면 `(venv)` 표시가 사라질 수 있는데, 이 때는 다시 `source venv/bin/activate` 명령어를 실행해야 한다.
+  > - VSCode에서 다른 디렉토리를 갔다가 다시 돌아오거나 하면 `(venv)` 표시가 사라질 수 있는데, 이 때는 다시 `source .venv/bin/activate` 명령어를 실행해야 한다.
 
 - 필수 패키지 설치
   ```bash
@@ -137,7 +137,7 @@ After=network.target
 User=ubuntu
 Group=ubuntu
 WorkingDirectory=/home/ubuntu/snuclsai
-ExecStart=/home/ubuntu/snuclsai/venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000
+ExecStart=/home/ubuntu/snuclsai/.venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000
 Restart=always
 
 [Install]
